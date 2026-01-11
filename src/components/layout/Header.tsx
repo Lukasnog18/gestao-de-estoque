@@ -1,10 +1,14 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Package, ArrowRightLeft, Warehouse, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const Header = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { signOut, user } = useAuth();
 
   const navItems = [
     { to: "/produtos", label: "Produtos", icon: Package },
@@ -13,6 +17,12 @@ const Header = () => {
   ];
 
   const isActive = (path: string) => location.pathname === path;
+
+  const handleLogout = async () => {
+    await signOut();
+    toast.success("Logout realizado com sucesso!");
+    navigate("/login");
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-card shadow-sm">
@@ -44,13 +54,16 @@ const Header = () => {
           ))}
         </nav>
 
-        <div className="flex items-center gap-2">
-          <Link to="/login">
-            <Button variant="outline" size="sm" className="gap-2">
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Sair</span>
-            </Button>
-          </Link>
+        <div className="flex items-center gap-3">
+          {user && (
+            <span className="text-sm text-muted-foreground hidden sm:inline">
+              {user.email}
+            </span>
+          )}
+          <Button variant="outline" size="sm" className="gap-2" onClick={handleLogout}>
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Sair</span>
+          </Button>
         </div>
       </div>
 
