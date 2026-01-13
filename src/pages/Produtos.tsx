@@ -23,7 +23,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import { useProdutos, Produto } from "@/hooks/useProdutos";
+import { useMovimentacoes } from "@/hooks/useMovimentacoes";
+import { useEstoque } from "@/hooks/useEstoque";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -36,7 +40,19 @@ const Produtos = () => {
   const [descricao, setDescricao] = useState("");
   const [search, setSearch] = useState("");
 
-  const { produtos, isLoading, createProduto, updateProduto, deleteProduto, isCreating, isUpdating } = useProdutos();
+  const { produtos, isLoading, createProduto, updateProduto, deleteProduto, isCreating, isUpdating, isDeleting } = useProdutos();
+  const { movimentacoes } = useMovimentacoes();
+  const { estoque } = useEstoque();
+
+  // Check if a product has movements
+  const productHasMovements = (produtoId: string) => {
+    return movimentacoes.some((m) => m.produto_id === produtoId);
+  };
+
+  // Get stock for a product
+  const getProductStock = (produtoId: string) => {
+    return estoque.find((item) => item.produto_id === produtoId)?.saldo ?? 0;
+  };
 
   const filteredProdutos = produtos.filter(
     (p) =>
@@ -80,6 +96,11 @@ const Produtos = () => {
   };
 
   const openDeleteDialog = (id: string) => {
+    // Check if product has movements before opening dialog
+    if (productHasMovements(id)) {
+      toast.error("Não é possível excluir um produto que possui movimentações. Exclua as movimentações primeiro.");
+      return;
+    }
     setDeletingId(id);
     setIsDeleteDialogOpen(true);
   };
@@ -192,9 +213,19 @@ const Produtos = () => {
                         {produto.descricao}
                       </p>
                     )}
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Criado em {format(new Date(produto.created_at), "dd/MM/yyyy", { locale: ptBR })}
-                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-xs text-muted-foreground">
+                        Criado em {format(new Date(produto.created_at), "dd/MM/yyyy", { locale: ptBR })}
+                      </p>
+                      <Badge variant="outline" className="text-xs">
+                        Saldo: {getProductStock(produto.id)}
+                      </Badge>
+                      {productHasMovements(produto.id) && (
+                        <Badge variant="secondary" className="text-xs">
+                          Com movimentações
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 ml-4">
                     <Button
@@ -208,8 +239,10 @@ const Produtos = () => {
                       variant="ghost"
                       size="icon"
                       onClick={() => openDeleteDialog(produto.id)}
+                      disabled={productHasMovements(produto.id)}
+                      title={productHasMovements(produto.id) ? "Produto possui movimentações" : "Excluir produto"}
                     >
-                      <Trash2 className="h-4 w-4 text-destructive" />
+                      <Trash2 className={`h-4 w-4 ${productHasMovements(produto.id) ? "text-muted-foreground" : "text-destructive"}`} />
                     </Button>
                   </div>
                 </div>
@@ -225,12 +258,13 @@ const Produtos = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir este produto? Esta ação não pode ser desfeita e todas as movimentações relacionadas serão excluídas.
+              Tem certeza que deseja excluir este produto? Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={isDeleting}>
+              {isDeleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

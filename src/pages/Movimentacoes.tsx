@@ -31,8 +31,10 @@ import {
 } from "@/components/ui/select";
 import { useMovimentacoes } from "@/hooks/useMovimentacoes";
 import { useProdutos } from "@/hooks/useProdutos";
+import { useEstoque } from "@/hooks/useEstoque";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { Badge } from "@/components/ui/badge";
 
 const Movimentacoes = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -47,6 +49,12 @@ const Movimentacoes = () => {
 
   const { movimentacoes, isLoading, createMovimentacao, deleteMovimentacao, isCreating } = useMovimentacoes();
   const { produtos } = useProdutos();
+  const { estoque } = useEstoque();
+
+  // Get stock for selected product
+  const selectedProductStock = produtoId
+    ? estoque.find((item) => item.produto_id === produtoId)?.saldo ?? 0
+    : 0;
 
   const filteredMovimentacoes = movimentacoes.filter((m) => {
     const matchesSearch = m.produtos?.nome.toLowerCase().includes(search.toLowerCase());
@@ -57,19 +65,38 @@ const Movimentacoes = () => {
   const handleSave = () => {
     if (!produtoId || !tipo || !quantidade || !data) return;
 
-    createMovimentacao({
-      produto_id: produtoId,
-      tipo: tipo as "entrada" | "saida",
-      quantidade: parseInt(quantidade),
-      data,
-    });
+    const qty = parseInt(quantidade);
+    
+    if (qty <= 0) {
+      return;
+    }
 
-    setIsDialogOpen(false);
-    setProdutoId("");
-    setTipo("");
-    setQuantidade("");
-    setData(format(new Date(), "yyyy-MM-dd"));
+    // Additional client-side validation for exits
+    if (tipo === "saida" && qty > selectedProductStock) {
+      return;
+    }
+
+    createMovimentacao(
+      {
+        produto_id: produtoId,
+        tipo: tipo as "entrada" | "saida",
+        quantidade: qty,
+        data,
+      },
+      {
+        onSuccess: () => {
+          setIsDialogOpen(false);
+          setProdutoId("");
+          setTipo("");
+          setQuantidade("");
+          setData(format(new Date(), "yyyy-MM-dd"));
+        },
+      }
+    );
   };
+
+  const isQuantityInvalid = quantidade !== "" && parseInt(quantidade) <= 0;
+  const isExitExceedsStock = tipo === "saida" && parseInt(quantidade || "0") > selectedProductStock;
 
   const handleDelete = () => {
     if (deletingId) {
@@ -108,7 +135,11 @@ const Movimentacoes = () => {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="product">Produto</Label>
-                <Select value={produtoId} onValueChange={setProdutoId}>
+                <Select value={produtoId} onValueChange={(value) => {
+                  setProdutoId(value);
+                  setTipo("");
+                  setQuantidade("");
+                }}>
                   <SelectTrigger id="product">
                     <SelectValue placeholder="Selecione um produto" />
                   </SelectTrigger>
@@ -118,11 +149,19 @@ const Movimentacoes = () => {
                         Nenhum produto cadastrado
                       </SelectItem>
                     ) : (
-                      produtos.map((produto) => (
+                      produtos.map((produto) => {
+                        const stock = estoque.find((item) => item.produto_id === produto.id)?.saldo ?? 0;
+                        return (
                         <SelectItem key={produto.id} value={produto.id}>
-                          {produto.nome}
+                          <span className="flex items-center justify-between w-full gap-2">
+                            {produto.nome}
+                            <Badge variant="outline" className="text-xs">
+                              Saldo: {stock}
+                            </Badge>
+                          </span>
                         </SelectItem>
-                      ))
+                        );
+                      })
                     )}
                   </SelectContent>
                 </Select>
@@ -158,7 +197,21 @@ const Movimentacoes = () => {
                   placeholder="0"
                   value={quantidade}
                   onChange={(e) => setQuantidade(e.target.value)}
+                  className={isQuantityInvalid || isExitExceedsStock ? "border-destructive" : ""}
                 />
+                {isQuantityInvalid && (
+                  <p className="text-sm text-destructive">A quantidade deve ser maior que zero</p>
+                )}
+                {isExitExceedsStock && (
+                  <p className="text-sm text-destructive">
+                    Saldo insuficiente. Saldo atual: {selectedProductStock} unidade(s)
+                  </p>
+                )}
+                {produtoId && tipo === "saida" && !isExitExceedsStock && (
+                  <p className="text-sm text-muted-foreground">
+                    Saldo disponível: {selectedProductStock} unidade(s)
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="date">Data</Label>
@@ -176,7 +229,7 @@ const Movimentacoes = () => {
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={isCreating || !produtoId || !tipo || !quantidade || !data}
+                disabled={isCreating || !produtoId || !tipo || !quantidade || !data || isQuantityInvalid || isExitExceedsStock}
               >
                 {isCreating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Registrar
