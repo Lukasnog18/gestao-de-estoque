@@ -29,11 +29,26 @@ export const useProdutos = () => {
     enabled: !!user,
   });
 
+  // Helper function to check if product has movements
+  const checkProductHasMovements = async (produtoId: string): Promise<boolean> => {
+    const { count, error } = await supabase
+      .from("movimentacoes")
+      .select("id", { count: "exact", head: true })
+      .eq("produto_id", produtoId);
+
+    if (error) throw error;
+    return (count ?? 0) > 0;
+  };
+
   const createMutation = useMutation({
     mutationFn: async ({ nome, descricao }: { nome: string; descricao?: string }) => {
+      if (!nome.trim()) {
+        throw new Error("O nome do produto é obrigatório");
+      }
+
       const { data, error } = await supabase
         .from("produtos")
-        .insert({ nome, descricao, user_id: user!.id })
+        .insert({ nome: nome.trim(), descricao: descricao?.trim() || null, user_id: user!.id })
         .select()
         .single();
 
@@ -45,15 +60,19 @@ export const useProdutos = () => {
       toast.success("Produto criado com sucesso!");
     },
     onError: (error) => {
-      toast.error("Erro ao criar produto: " + error.message);
+      toast.error(error.message);
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, nome, descricao }: { id: string; nome: string; descricao?: string }) => {
+      if (!nome.trim()) {
+        throw new Error("O nome do produto é obrigatório");
+      }
+
       const { data, error } = await supabase
         .from("produtos")
-        .update({ nome, descricao })
+        .update({ nome: nome.trim(), descricao: descricao?.trim() || null })
         .eq("id", id)
         .select()
         .single();
@@ -63,25 +82,32 @@ export const useProdutos = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      queryClient.invalidateQueries({ queryKey: ["estoque"] });
       toast.success("Produto atualizado com sucesso!");
     },
     onError: (error) => {
-      toast.error("Erro ao atualizar produto: " + error.message);
+      toast.error(error.message);
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      // Check if product has movements
+      const hasMovements = await checkProductHasMovements(id);
+      if (hasMovements) {
+        throw new Error("Não é possível excluir um produto que possui movimentações. Exclua as movimentações primeiro.");
+      }
+
       const { error } = await supabase.from("produtos").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["produtos"] });
-      queryClient.invalidateQueries({ queryKey: ["movimentacoes"] });
+      queryClient.invalidateQueries({ queryKey: ["estoque"] });
       toast.success("Produto excluído com sucesso!");
     },
     onError: (error) => {
-      toast.error("Erro ao excluir produto: " + error.message);
+      toast.error(error.message);
     },
   });
 
@@ -95,5 +121,6 @@ export const useProdutos = () => {
     isCreating: createMutation.isPending,
     isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
+    checkProductHasMovements,
   };
 };

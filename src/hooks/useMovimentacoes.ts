@@ -26,13 +26,32 @@ export const useMovimentacoes = () => {
       const { data, error } = await supabase
         .from("movimentacoes")
         .select("*, produtos(nome)")
-        .order("data", { ascending: false });
+        .order("data", { ascending: false })
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
       return data as Movimentacao[];
     },
     enabled: !!user,
   });
+
+  // Helper function to get current stock for a product
+  const getProductStock = async (produtoId: string): Promise<number> => {
+    const { data: movimentacoes, error } = await supabase
+      .from("movimentacoes")
+      .select("tipo, quantidade")
+      .eq("produto_id", produtoId);
+
+    if (error) throw error;
+
+    return movimentacoes.reduce((acc, mov) => {
+      if (mov.tipo === "entrada") {
+        return acc + mov.quantidade;
+      } else {
+        return acc - mov.quantidade;
+      }
+    }, 0);
+  };
 
   const createMutation = useMutation({
     mutationFn: async ({
@@ -46,6 +65,21 @@ export const useMovimentacoes = () => {
       quantidade: number;
       data: string;
     }) => {
+      // Validate positive quantity
+      if (quantidade <= 0) {
+        throw new Error("A quantidade deve ser maior que zero");
+      }
+
+      // If it's an exit, check stock availability
+      if (tipo === "saida") {
+        const currentStock = await getProductStock(produto_id);
+        if (currentStock < quantidade) {
+          throw new Error(
+            `Saldo insuficiente. Saldo atual: ${currentStock} unidade(s)`
+          );
+        }
+      }
+
       const { data: result, error } = await supabase
         .from("movimentacoes")
         .insert({ produto_id, tipo, quantidade, data, user_id: user!.id })
@@ -61,7 +95,7 @@ export const useMovimentacoes = () => {
       toast.success("Movimentação registrada com sucesso!");
     },
     onError: (error) => {
-      toast.error("Erro ao registrar movimentação: " + error.message);
+      toast.error(error.message);
     },
   });
 
@@ -88,5 +122,6 @@ export const useMovimentacoes = () => {
     deleteMovimentacao: deleteMutation.mutate,
     isCreating: createMutation.isPending,
     isDeleting: deleteMutation.isPending,
+    getProductStock,
   };
 };
